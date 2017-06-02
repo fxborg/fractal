@@ -1,0 +1,6 @@
+LIBRARY afa
+EXPORTS
+   Create @1
+   Push @2
+   Calculate @3
+   Destroy @4
