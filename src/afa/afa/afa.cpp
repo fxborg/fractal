@@ -1,11 +1,5 @@
 #include "afa.h"
-//+-----------------------------------------------------------------------------------------+
-//| This formulation was first formulated in                                                |
-//|                                                                                         |
-//| J.B. Gao, J. Hu, W.W. Tung, Facilitating joint chaos and fractal analysis of biosignals |
-//| through nonlinear adaptive filtering.  PLoS ONE PLoS ONE 6(9): e24331.                  |
-//| doi:10.1371/journal.pone.0024331                                                        |
-//+-----------------------------------------------------------------------------------------+
+
 
 EXPORT CAfa * __stdcall Create(	const unsigned int length,	 const unsigned int order)
 {
@@ -67,34 +61,49 @@ int CAfa::push(const int x, const double y, const time_t t0, const time_t t1)
 	{
 		return -9999;
 	}
-    // 新規バーの以外は何もしない。
+
 	if (!m_series.is_adding())return -1;
-    // スケール分ループ
 	std::deque<double> series = m_series.get_series();
 	for (unsigned int i = 0; i < m_segments.size(); i++)
 	{
-		unsigned int step = m_segments[i];	// ハーフサイズ
-		unsigned int w = step * 2 + 1;		// ウインドウサイズ
-		unsigned int len = step * 3 + 1;	// ウインドウサイズ＋ハーフサイズ
+
+		unsigned int step = m_segments[i];
+		//		std::cout << step << std::endl;
+		unsigned int w = step * 2 + 1;
+		unsigned int len = step * 3 + 1;
 		unsigned int sz = series.size();
-		
-		if (sz - 1 < len) continue;	//サイズが足りない場合スキップ
-		// 計算に使用するデータを deque から vector にコピー
+		if (sz - 1 < len) continue;
 		int offset = sz - len - 1;
 		std::vector<double> data;
 		std::copy(series.cbegin() + offset, series.cend() - 1, std::back_inserter(data));
 		std::vector <double> trend;
 		double v1 = 0.0;
 		double v2 = 0.0;
-		// 多項式フィット
 		if (m_filters[i].fit(data, trend)) {
-			// 残差絶対値和を求める。
+			//if (x%step == 0 && w == 9)
+			//{
+
+			//	for (unsigned int i = 0; i < step; i++)
+			//	{
+			//		unsigned int o = data.size() - (step * 2);
+			//		//std::cout <<x <<", " << w << "]:" << data[o + i] << " - " << trend[i] << " ;" << std::endl;
+			//	}
+			//}
 			volatility(data, trend, step, v1, v2);
 		}
 
 		// キャッシュに追加
+		
 		m_cache[step].set(x - step, v1);
 		m_cache[step].set(x, v2);
+//		std::cout << w << ":" << step << std::endl;
+
+//		if (x%step == 2)
+//		{
+//			std::cout << "[" << x - step << "]<-" << v1 << ", ";
+//			std::cout << "[" << x << "]<-" << v2 << std::endl;
+//			m_cache[step].print(x);
+//		}
 		
 	}
 	return result;
@@ -103,22 +112,22 @@ int CAfa::push(const int x, const double y, const time_t t0, const time_t t1)
 
 double CAfa::calculate()
 {
-	// 末尾の一つ前のインデックス
-	int x = m_series.prev_x();
-	if (x == -1) return -1.0;
-	// スケーリング指数を求める。
+	int x = m_series.last_x();
+
 	std::vector<Stats> fq;
+	//std::cout << "------------------------------" << std::endl;
 	for (unsigned int i = 0; i < m_segments.size(); i++)
 	{
 		unsigned int step = m_segments[i];
 		unsigned int w = step * 2 + 1;
-		// 残差絶対値和の平均を求める。
 		double v = m_cache[step].calc_fractal(x);
 		fq.emplace_back(1, log2(w), log2(v));
+		//std::cout<< (w) << "," <<  (v) << std::endl;
 	}
-	// スロープを求める。
+
 	Stats stat = std::accumulate(fq.begin(), fq.end(), Stats());
 	double slope = stat.slope();
+//	std::cout <<"slope:"<< slope << std::endl;
 	return (isnan(slope)) ? -1.0 : slope;
 }
 void CAfa::volatility(std::vector<double> &y, std::vector<double> &y_hat, const unsigned int step, double &v1,double &v2)
@@ -130,6 +139,9 @@ void CAfa::volatility(std::vector<double> &y, std::vector<double> &y_hat, const 
 	v1 = 0.0;
 	for (unsigned int i = 0; i < step; i++)
 	{
+//		std::cout << "1 y:" << from_y+i << " y^:" << from_y_hat+i << std::endl;
+//		std::cout << "1 v:" << y[from_y + i] << " v^:" << y_hat[from_y_hat + i] << std::endl;
+//		std::cout << "1 volat:" << y[from_y + i] - y_hat[from_y_hat + i] << std::endl;
 		v1 += abs(y[from_y + i] - y_hat[from_y_hat + i]);
 	}
 //	std::cout << "1 v1:" <<v1 << std::endl;
@@ -137,6 +149,9 @@ void CAfa::volatility(std::vector<double> &y, std::vector<double> &y_hat, const 
 	v2 = 0.0;
 	for (unsigned int i = step; i < sz; i++)
 	{
+//		std::cout << "2 x:" << from_y + i << " y^:" << from_y_hat + i << std::endl;
+//		std::cout << "2 v:" << y[from_y + i] << " v^:" << y_hat[from_y_hat + i] << std::endl;
+//		std::cout << "2 volat:" << y[from_y + i] - y_hat[from_y_hat + i] << std::endl;
 		v2 += abs(y[from_y + i] - y_hat[from_y_hat + i]);
 	}
 //	std::cout << "2 v2:" << v2 << std::endl;
@@ -159,12 +174,11 @@ unsigned int CAfa::validate_length(const unsigned int len)
 
 double CAfa::validate_step(const double step)
 {
-	double tmp = int(step * 2.0)*0.5;
-	return std::min(2.0, std::max(0.5, tmp));
+	return 1u;
 }
 unsigned int  CAfa::validate_order(const unsigned int order)
 {
-	return 1u;
+	return std::min(3u, std::max(1u, order));
 }
 
 
